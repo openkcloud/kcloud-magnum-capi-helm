@@ -62,6 +62,8 @@ class NodeGroupState(enum.Enum):
 
 
 class Driver(driver.Driver):
+    needs_trust = False
+
     def __init__(self):
         self._helm_client = helm.Client()
         self.__k8s_client = None

@@ -19,21 +19,15 @@
       the project code and allows tox_install_siblings to use magnum
       when building the venv.
       py310 is in 2023.1/2023.2/2024.1/2024.2/2025.1/2025.2/2026.1 PTI
-      py311 is in 2024.1/2024.2/2025.1/2025.2/2026.1 PTI
-      py312 is in 2025.1/2025.2/2026.1 PTI
-      py313 is in 2025.2/2026.1 PTI
+      py311 is in 2024.1/2024.2/2025.1/2025.2/2026.1/2026.2 PTI
+      py312 is in 2025.1/2025.2/2026.1/2026.2 PTI
+      py313 is in 2025.2/2026.1/2026.2 PTI
       py314 is in 2026.2 PTI
     check:
       jobs:
         - openstack-tox-pep8:
             required-projects:
               - openstack/magnum
-        - openstack-tox-py310:
-            required-projects:
-              - name: openstack/magnum
-                override-checkout: stable/2026.1
-              - name: openstack/requirements
-                override-checkout: stable/2026.1
         - openstack-tox-py311:
             required-projects:
               - openstack/magnum
@@ -51,12 +45,6 @@
         - openstack-tox-pep8:
             required-projects:
               - openstack/magnum
-        - openstack-tox-py310:
-            required-projects:
-              - name: openstack/magnum
-                override-checkout: stable/2026.1
-              - name: openstack/requirements
-                override-checkout: stable/2026.1
         - openstack-tox-py311:
             required-projects:
               - openstack/magnum

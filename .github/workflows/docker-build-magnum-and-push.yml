@@ -50,6 +50,11 @@ env:
 
 jobs:
   build-magnum-and-push:
+    # Only the org publishes images, matching kcloud-horizon, kcloud-cyborg and
+    # kcloud-nova. Personal forks still get the Dockerfile and the workflow, but
+    # never push to ghcr.io/<fork-owner>/.
+    if: github.repository_owner == 'openkcloud'
+
     runs-on: ubuntu-latest
 
     steps:

@@ -33,7 +33,8 @@ Repository = "https://opendev.org/openstack/magnum-capi-helm"
 
 [tool.setuptools]
 packages = [
-    "magnum_capi_helm"
+    "magnum_capi_helm",
+    "magnum_capi_helm.common"
 ]
 
 [project.entry-points."magnum.drivers"]

@@ -194,6 +194,15 @@ capi_helm_cluster_labels_opts = [
         help="Enable the monitoring addon on the cluster.",
     ),
     cfg.BoolOpt(
+        "nvidia_gpu_operator_enabled",
+        default=True,
+        help=(
+            "Enable the NVIDIA GPU operator addon on the cluster. The chart "
+            "installs it by default, which is wasted work on clusters whose "
+            "flavors have no GPU."
+        ),
+    ),
+    cfg.BoolOpt(
         "kube_dashboard_enabled",
         default=True,
         help="Enable the Kubernetes Dashboard addon.",

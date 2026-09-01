@@ -720,6 +720,13 @@ class Driver(driver.Driver):
             CONF.capi_helm_cluster_labels.kube_dashboard_enabled,
         )
 
+    def _get_nvidia_gpu_operator_enabled(self, cluster):
+        return self._get_label_bool(
+            cluster,
+            "nvidia_gpu_operator_enabled",
+            CONF.capi_helm_cluster_labels.nvidia_gpu_operator_enabled,
+        )
+
     def _get_autoheal_enabled(self, cluster):
         return self._get_label_bool(
             cluster,
@@ -1228,6 +1235,9 @@ class Driver(driver.Driver):
                 },
                 "kubernetesDashboard": {
                     "enabled": self._get_kube_dash_enabled(cluster)
+                },
+                "nvidiaGPUOperator": {
+                    "enabled": self._get_nvidia_gpu_operator_enabled(cluster)
                 },
                 # TODO(mkjpryor): can't enable ingress until code exists to
                 #                 remove the load balancer

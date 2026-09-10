@@ -48,6 +48,19 @@ capi_helm_opts = [
             "you will want this to set this to the empty string."
         ),
     ),
+    cfg.DictOpt(
+        "registry_mirrors",
+        default={},
+        help=(
+            "Registry mirrors for the guest cluster's containerd, as "
+            "<registry>:<mirror url> pairs, e.g. "
+            "docker.io:https://registry.example.com/v2/docker.io . "
+            "Registries not listed here are sent as null, which removes the "
+            "chart's own default mirror for them, so anything unconfigured "
+            "comes straight from the upstream registry. Leave the whole option "
+            "empty to use no mirrors at all."
+        ),
+    ),
     cfg.StrOpt(
         "helm_chart_name",
         default="openstack-cluster",

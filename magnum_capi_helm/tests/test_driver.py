@@ -1207,6 +1207,48 @@ class ClusterAPIDriverTest(base.DbTestCase):
 
             self.assertFalse(result)
 
+    def test_get_registry_mirrors_default_removes_chart_defaults(self):
+        # Nothing configured: every registry the chart mirrors must be sent as
+        # null, which is what actually removes it. An empty map would not --
+        # helm deep-merges and the chart defaults would survive.
+        mirrors = self.driver._get_registry_mirrors()
+
+        self.assertEqual(
+            {
+                "docker.io": None,
+                "ghcr.io": None,
+                "nvcr.io": None,
+                "quay.io": None,
+                "registry.k8s.io": None,
+            },
+            mirrors,
+        )
+
+    def test_get_registry_mirrors_from_config(self):
+        conf.CONF.set_override(
+            "registry_mirrors",
+            {
+                "docker.io": "https://mirror.example.com/v2/docker.io",
+                "registry.k8s.io": "https://mirror.example.com/v2/k8s",
+            },
+            group="capi_helm",
+        )
+
+        mirrors = self.driver._get_registry_mirrors()
+
+        # Configured registries get a list of mirrors; the rest stay null so
+        # the chart default cannot survive a partial config.
+        self.assertEqual(
+            {
+                "docker.io": ["https://mirror.example.com/v2/docker.io"],
+                "registry.k8s.io": ["https://mirror.example.com/v2/k8s"],
+                "ghcr.io": None,
+                "nvcr.io": None,
+                "quay.io": None,
+            },
+            mirrors,
+        )
+
     def test_get_chart_version_from_config(self):
         version = self.driver._get_chart_version(self.cluster_obj)
 
@@ -1282,6 +1324,13 @@ class ClusterAPIDriverTest(base.DbTestCase):
                     "machineCount": 3,
                 },
             ],
+            "registryMirrors": {
+                "docker.io": None,
+                "ghcr.io": None,
+                "nvcr.io": None,
+                "quay.io": None,
+                "registry.k8s.io": None,
+            },
             "osDistro": "ubuntu",
             "nodeGroupDefaults": {
                 "healthCheck": {"enabled": True},

@@ -720,6 +720,36 @@ class Driver(driver.Driver):
             CONF.capi_helm_cluster_labels.kube_dashboard_enabled,
         )
 
+    # Registries the chart defines mirrors for. Sending null for each is the
+    # only way to remove them: helm deep-merges maps, so an empty
+    # registryMirrors leaves the chart defaults in place (verified with
+    # helm template against openstack-cluster 0.25.0 -- {} rendered the same
+    # five hosts.toml files as no override at all, nulls rendered none).
+    #
+    # Re-check this list when bumping the chart: a registry added to the
+    # chart's registryMirrors defaults would not be removed by it.
+    CHART_DEFAULT_MIRRORED_REGISTRIES = (
+        "docker.io",
+        "ghcr.io",
+        "nvcr.io",
+        "quay.io",
+        "registry.k8s.io",
+    )
+
+    def _get_registry_mirrors(self):
+        # Start from null for every registry the chart mirrors, then overlay
+        # what is configured. Sending only the configured ones would leave the
+        # chart's own mirror in place for the rest, which is the failure this
+        # is meant to avoid -- a partial config must not silently keep some
+        # pulls going through the chart default.
+        mirrors = {
+            registry: None
+            for registry in self.CHART_DEFAULT_MIRRORED_REGISTRIES
+        }
+        for registry, url in CONF.capi_helm.registry_mirrors.items():
+            mirrors[registry] = [url]
+        return mirrors
+
     def _get_nvidia_gpu_operator_enabled(self, cluster):
         return self._get_label_bool(
             cluster,
@@ -1197,6 +1227,7 @@ class Driver(driver.Driver):
                     ]
                 },
             },
+            "registryMirrors": self._get_registry_mirrors(),
             "osDistro": os_distro,
             "controlPlane": {
                 "machineFlavor": cluster.master_flavor_id,

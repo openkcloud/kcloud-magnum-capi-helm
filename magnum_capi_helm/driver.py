@@ -750,6 +750,13 @@ class Driver(driver.Driver):
             mirrors[registry] = [url]
         return mirrors
 
+    def _get_mellanox_network_operator_enabled(self, cluster):
+        return self._get_label_bool(
+            cluster,
+            "mellanox_network_operator_enabled",
+            CONF.capi_helm_cluster_labels.mellanox_network_operator_enabled,
+        )
+
     def _get_nvidia_gpu_operator_enabled(self, cluster):
         return self._get_label_bool(
             cluster,
@@ -1269,6 +1276,11 @@ class Driver(driver.Driver):
                 },
                 "nvidiaGPUOperator": {
                     "enabled": self._get_nvidia_gpu_operator_enabled(cluster)
+                },
+                "mellanoxNetworkOperator": {
+                    "enabled": self._get_mellanox_network_operator_enabled(
+                        cluster
+                    )
                 },
                 # TODO(mkjpryor): can't enable ingress until code exists to
                 #                 remove the load balancer

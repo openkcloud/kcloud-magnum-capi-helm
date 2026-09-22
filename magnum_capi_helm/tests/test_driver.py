@@ -1189,6 +1189,26 @@ class ClusterAPIDriverTest(base.DbTestCase):
 
             self.assertFalse(result)
 
+    def test_get_mellanox_network_operator_enabled_from_template(self):
+        # Check default if label is not present
+        self.assertTrue(
+            self.driver._get_mellanox_network_operator_enabled(
+                self.cluster_obj
+            )
+        )
+
+        for val in ["false", "False", "FALSE"]:
+
+            self.cluster_obj.cluster_template.labels[
+                "mellanox_network_operator_enabled"
+            ] = val
+
+            result = self.driver._get_mellanox_network_operator_enabled(
+                self.cluster_obj
+            )
+
+            self.assertFalse(result)
+
     def test_get_nvidia_gpu_operator_enabled_from_template(self):
         # Check default if label is not present
         self.assertTrue(
@@ -1305,6 +1325,7 @@ class ClusterAPIDriverTest(base.DbTestCase):
                 "monitoring": {"enabled": False},
                 "kubernetesDashboard": {"enabled": True},
                 "nvidiaGPUOperator": {"enabled": True},
+                "mellanoxNetworkOperator": {"enabled": True},
                 "ingress": {"enabled": False},
                 "openstack": {
                     "csiCinder": mock.ANY,

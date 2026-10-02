@@ -1208,6 +1208,132 @@ class ClusterAPIDriverTest(base.DbTestCase):
             )
 
             self.assertFalse(result)
+    def test_get_kcloud_operator_enabled_from_template(self):
+        # Off unless asked for: it replaces the chart's GPU operator, so it
+        # must not appear on clusters that did not request it.
+        self.assertFalse(
+            self.driver._get_kcloud_operator_enabled(self.cluster_obj)
+        )
+
+        for val in ["true", "True", "TRUE"]:
+
+            self.cluster_obj.cluster_template.labels[
+                "kcloud_operator_enabled"
+            ] = val
+
+            result = self.driver._get_kcloud_operator_enabled(
+                self.cluster_obj
+            )
+
+            self.assertTrue(result)
+
+    def test_resolve_accelerator_operators_label_beats_default(self):
+        # kcloud-operator on by default, but this cluster asks for the chart's
+        # GPU operator: the label wins and kcloud-operator stays out.
+        conf.CONF.set_override(
+            "kcloud_operator_enabled", True, group="capi_helm_cluster_labels"
+        )
+        self.cluster_obj.cluster_template.labels[
+            "nvidia_gpu_operator_enabled"
+        ] = "true"
+
+        kcloud, nvidia = self.driver._resolve_accelerator_operators(
+            self.cluster_obj
+        )
+
+        self.assertFalse(kcloud)
+        self.assertTrue(nvidia)
+
+    def test_resolve_accelerator_operators_kcloud_label_disables_gpu(self):
+        # The mirror image: the cluster asks for kcloud-operator, so the GPU
+        # operator's default of true does not apply.
+        self.cluster_obj.cluster_template.labels[
+            "kcloud_operator_enabled"
+        ] = "true"
+
+        kcloud, nvidia = self.driver._resolve_accelerator_operators(
+            self.cluster_obj
+        )
+
+        self.assertTrue(kcloud)
+        self.assertFalse(nvidia)
+
+    def test_resolve_accelerator_operators_defaults(self):
+        # Neither label set: the configured defaults apply unchanged.
+        kcloud, nvidia = self.driver._resolve_accelerator_operators(
+            self.cluster_obj
+        )
+
+        self.assertFalse(kcloud)
+        self.assertTrue(nvidia)
+
+    def test_resolve_accelerator_operators_kcloud_wins_over_both_asked(self):
+        # Both asked for: kcloud-operator covers GPUs as well, so it takes the
+        # cluster and the chart's GPU operator stays out.
+        for label in ("kcloud_operator_enabled",
+                      "nvidia_gpu_operator_enabled"):
+            self.cluster_obj.cluster_template.labels[label] = "true"
+
+        kcloud, nvidia = self.driver._resolve_accelerator_operators(
+            self.cluster_obj
+        )
+
+        self.assertTrue(kcloud)
+        self.assertFalse(nvidia)
+
+    def test_get_kcloud_operator_addon(self):
+        addon = self.driver._get_kcloud_operator_addon()
+
+        spec = addon["kcloud-operator"]["spec"]
+        self.assertEqual("HelmRelease", addon["kcloud-operator"]["kind"])
+        self.assertEqual("kcloud", spec["namespace"])
+        self.assertEqual(
+            {
+                "repo": "https://openkcloud.github.io/kcloud-operator",
+                "name": "kcloud-operator",
+                "version": "0.7.30",
+            },
+            spec["chart"],
+        )
+        # The preset arrives parsed, with the site-owned values merged in.
+        self.assertTrue(spec["values"]["webhook"]["enabled"])
+        self.assertEqual(
+            "apt",
+            spec["values"]["driverInstallPolicies"]["nvidia"]["toolkit"][
+                "method"
+            ],
+        )
+        self.assertEqual(
+            {"registry": "ghcr.io/openkcloud", "vendorRegistry": ""},
+            spec["values"]["global"],
+        )
+
+    def test_get_kcloud_operator_addon_site_values_override_preset(self):
+        conf.CONF.set_override(
+            "kcloud_operator_values",
+            '{"global":{"registry":"preset-loses"},"webhook":'
+            '{"enabled":true}}',
+            group="capi_helm",
+        )
+        conf.CONF.set_override(
+            "kcloud_operator_registry", "mirror:5000/kcloud", group="capi_helm"
+        )
+
+        addon = self.driver._get_kcloud_operator_addon()
+
+        values = addon["kcloud-operator"]["spec"]["values"]
+        self.assertEqual("mirror:5000/kcloud", values["global"]["registry"])
+        self.assertTrue(values["webhook"]["enabled"])
+
+    def test_get_kcloud_operator_addon_rejects_non_mapping_values(self):
+        conf.CONF.set_override(
+            "kcloud_operator_values", "just a string", group="capi_helm"
+        )
+
+        self.assertRaises(
+            exception.MagnumException,
+            self.driver._get_kcloud_operator_addon,
+        )
 
     def test_get_nvidia_gpu_operator_enabled_from_template(self):
         # Check default if label is not present

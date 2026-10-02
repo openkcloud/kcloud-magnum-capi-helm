@@ -281,11 +281,12 @@ capi_helm_cluster_labels_opts = [
     ),
     cfg.BoolOpt(
         "mellanox_network_operator_enabled",
-        default=True,
+        default=False,
         help=(
             "Enable the Mellanox network operator addon on the cluster. The "
-            "chart installs it by default; it has nothing to manage on nodes "
-            "without Mellanox hardware."
+            "chart installs it by default, but it has nothing to manage on "
+            "nodes without Mellanox hardware, so this defaults to off; set "
+            "the label on clusters whose flavors have the cards."
         ),
     ),
     cfg.BoolOpt(

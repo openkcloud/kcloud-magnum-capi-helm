@@ -756,6 +756,103 @@ class Driver(driver.Driver):
             "mellanox_network_operator_enabled",
             CONF.capi_helm_cluster_labels.mellanox_network_operator_enabled,
         )
+    def _explicit_label_bool(self, cluster, label):
+        """Read a boolean label, or None when it is not set at all.
+
+        The accessors fall back to the configured default, which cannot tell
+        "left alone" from "asked for". Telling the two apart is what lets an
+        explicit label win over a default instead of colliding with it.
+        """
+        labels = (
+            helm.mergeconcat(
+                cluster.cluster_template.labels, cluster.labels
+            )
+            or {}
+        )
+        if label not in labels:
+            return None
+        return strutils.bool_from_string(labels[label], default=False)
+
+    def _resolve_accelerator_operators(self, cluster):
+        """Decide which accelerator operator runs: (kcloud, nvidia GPU).
+
+        kcloud-operator deploys the NVIDIA device plugin itself, so it and the
+        chart's GPU operator cannot both manage the same GPUs. The more
+        specific request wins: a cluster that asks for kcloud-operator gets it
+        and nothing else, including over an explicit GPU operator label, since
+        kcloud-operator covers GPUs too; a cluster that asks only for the GPU
+        operator gets it even where kcloud-operator is the configured default.
+        """
+        kcloud_asked = self._explicit_label_bool(
+            cluster, "kcloud_operator_enabled"
+        )
+        nvidia_asked = self._explicit_label_bool(
+            cluster, "nvidia_gpu_operator_enabled"
+        )
+        if kcloud_asked:
+            return True, False
+        if nvidia_asked:
+            return False, True
+        kcloud_operator = self._get_kcloud_operator_enabled(cluster)
+        return kcloud_operator, (
+            False
+            if kcloud_operator
+            else self._get_nvidia_gpu_operator_enabled(cluster)
+        )
+
+    def _get_kcloud_operator_enabled(self, cluster):
+        return self._get_label_bool(
+            cluster,
+            "kcloud_operator_enabled",
+            CONF.capi_helm_cluster_labels.kcloud_operator_enabled,
+        )
+
+    def _get_kcloud_operator_addon(self):
+        """Build the custom addon entry that installs kcloud-operator.
+
+        The chart's custom addons map is the only way in: the addon provider
+        reads values from a configmap, a secret or a template string, never
+        from a URL, and the chart turns spec.values into the secret itself.
+        So the preset has to arrive here as actual values.
+        """
+        values = yaml.safe_load(CONF.capi_helm.kcloud_operator_values) or {}
+        if not isinstance(values, dict):
+            raise exception.MagnumException(
+                message=(
+                    "[capi_helm] kcloud_operator_values must be a mapping, "
+                    f"got {type(values).__name__}. It is one line of YAML or "
+                    "JSON; a multi-line value cannot survive magnum.conf."
+                )
+            )
+        # The site-owned values win over the preset: release.yaml lists them as
+        # the keys a deployment overrides, and the preset does not set them.
+        values = helm.mergeconcat(
+            values,
+            {
+                "global": {
+                    "registry": CONF.capi_helm.kcloud_operator_registry,
+                    "vendorRegistry": (
+                        CONF.capi_helm.kcloud_operator_vendor_registry
+                    ),
+                }
+            },
+        )
+        return {
+            "kcloud-operator": {
+                "kind": "HelmRelease",
+                "spec": {
+                    "namespace": CONF.capi_helm.kcloud_operator_namespace,
+                    "chart": {
+                        "repo": CONF.capi_helm.kcloud_operator_chart_repo,
+                        "name": "kcloud-operator",
+                        "version": (
+                            CONF.capi_helm.kcloud_operator_chart_version
+                        ),
+                    },
+                    "values": values,
+                },
+            }
+        }
 
     def _get_nvidia_gpu_operator_enabled(self, cluster):
         return self._get_label_bool(
@@ -1170,6 +1267,10 @@ class Driver(driver.Driver):
 
     def _update_helm_release(self, context, cluster, nodegroups=None):
         lconf = CONF.capi_helm_cluster_labels
+        kcloud_operator, nvidia_gpu_operator = (
+            self._resolve_accelerator_operators(cluster)
+        )
+
         if nodegroups is None:
             nodegroups = cluster.nodegroups
 
@@ -1274,9 +1375,7 @@ class Driver(driver.Driver):
                 "kubernetesDashboard": {
                     "enabled": self._get_kube_dash_enabled(cluster)
                 },
-                "nvidiaGPUOperator": {
-                    "enabled": self._get_nvidia_gpu_operator_enabled(cluster)
-                },
+                "nvidiaGPUOperator": {"enabled": nvidia_gpu_operator},
                 "mellanoxNetworkOperator": {
                     "enabled": self._get_mellanox_network_operator_enabled(
                         cluster
@@ -1399,6 +1498,12 @@ class Driver(driver.Driver):
                 "apiServer": {"allowedCidrs": api_lb_allowed_cidrs}
             }
             values = helm.mergeconcat(values, allowed_cidrs_config)
+
+        if kcloud_operator:
+            values = helm.mergeconcat(
+                values,
+                {"addons": {"custom": self._get_kcloud_operator_addon()}},
+            )
 
         cni_type = self._get_cni_type(cluster)
         if cni_type:

@@ -48,6 +48,79 @@ capi_helm_opts = [
             "you will want this to set this to the empty string."
         ),
     ),
+    # kcloud-operator (NPU/GPU accelerator management) addon. These coordinates
+    # come from the operator's own deploy/integration/release.yaml, which is
+    # canonical for them -- keep them in step with it when bumping the chart.
+    #
+    # The chart is published both to an OCI registry and to an HTTP Helm
+    # repository. We need the HTTP one: cluster-api-addon-provider's HelmRelease
+    # takes only an http(s) URI for chart.repo (a CRD uri check and an
+    # AnyHttpUrl field), so the oci:// ref release.yaml names cannot be used.
+    cfg.StrOpt(
+        "kcloud_operator_chart_repo",
+        default="https://openkcloud.github.io/kcloud-operator",
+        help="Helm repository serving the kcloud-operator chart.",
+    ),
+    cfg.StrOpt(
+        "kcloud_operator_chart_version",
+        default="0.7.30",
+        help=(
+            "Version of the kcloud-operator chart. Paired with the preset in "
+            "kcloud_operator_values: release.yaml bumps the chart whenever the "
+            "preset changes, so bump the two together."
+        ),
+    ),
+    cfg.StrOpt(
+        "kcloud_operator_namespace",
+        default="kcloud",
+        help=(
+            "Namespace for the kcloud-operator release on the guest cluster. "
+            "Only kcloud's own resources live there; the operator places "
+            "vendor device plugins and toolkits in kube-system itself."
+        ),
+    ),
+    # release.yaml sanctions inlining for this path -- "Add-on CR 처럼 값을
+    # 인라인으로 넣는 방식이면 valuesURL 의 내용을 그대로 옮긴다". This is the
+    # content of values-k8s1.34.yaml at commit 45fcbedc8300 (the 1.31-1.34
+    # profile) on one line: openstack-helm renders a config value with no
+    # continuation indent, so a multi-line string would produce a broken
+    # magnum.conf, and a nested mapping is dropped there without warning.
+    cfg.StrOpt(
+        "kcloud_operator_values",
+        default=(
+            '{"api":{"enabled":false},'
+            '"driverInstallPolicies":{"nvidia":{"toolkit":'
+            '{"enabled":true,"method":"apt"}}},'
+            '"furiosa":{"exporter":{"enabled":true},'
+            '"unified":{"enabled":false}},'
+            '"image":{"tag":"v0.7.30"},'
+            '"nvidia":{"dcgmExporter":{"enabled":true}},'
+            '"rebellions":{"enabled":false},'
+            '"webhook":{"enabled":true}}'
+        ),
+        help=(
+            "Helm values for the kcloud-operator chart, as one line of YAML or "
+            "JSON. Defaults to the Kubernetes 1.31-1.34 preset the operator "
+            "publishes. A guest cluster outside that range needs the other "
+            "profile from release.yaml -- chart version and preset together."
+        ),
+    ),
+    # The two values release.yaml marks as site-owned. They get their own
+    # options so a deployment can set them without restating the whole preset.
+    cfg.StrOpt(
+        "kcloud_operator_registry",
+        default="ghcr.io/openkcloud",
+        help="Registry for the images kcloud builds (global.registry).",
+    ),
+    cfg.StrOpt(
+        "kcloud_operator_vendor_registry",
+        default="",
+        help=(
+            "Registry for third-party vendor images (global.vendorRegistry). "
+            "Empty pulls them from their upstream registries; set it to an "
+            "air-gap mirror that keeps the <mirror>/<org>/<image> layout."
+        ),
+    ),
     cfg.DictOpt(
         "registry_mirrors",
         default={},
@@ -213,6 +286,15 @@ capi_helm_cluster_labels_opts = [
             "Enable the Mellanox network operator addon on the cluster. The "
             "chart installs it by default; it has nothing to manage on nodes "
             "without Mellanox hardware."
+        ),
+    ),
+    cfg.BoolOpt(
+        "kcloud_operator_enabled",
+        default=False,
+        help=(
+            "Install kcloud-operator on the cluster to manage NPU and GPU "
+            "accelerators. It deploys the NVIDIA device plugin itself, so "
+            "enabling it turns the chart's own NVIDIA GPU operator off."
         ),
     ),
     cfg.BoolOpt(

@@ -1190,14 +1190,15 @@ class ClusterAPIDriverTest(base.DbTestCase):
             self.assertFalse(result)
 
     def test_get_mellanox_network_operator_enabled_from_template(self):
-        # Check default if label is not present
-        self.assertTrue(
+        # Off unless a cluster asks for it: nodes without Mellanox cards have
+        # nothing for the operator to manage.
+        self.assertFalse(
             self.driver._get_mellanox_network_operator_enabled(
                 self.cluster_obj
             )
         )
 
-        for val in ["false", "False", "FALSE"]:
+        for val in ["true", "True", "TRUE"]:
 
             self.cluster_obj.cluster_template.labels[
                 "mellanox_network_operator_enabled"
@@ -1207,7 +1208,7 @@ class ClusterAPIDriverTest(base.DbTestCase):
                 self.cluster_obj
             )
 
-            self.assertFalse(result)
+            self.assertTrue(result)
     def test_get_kcloud_operator_enabled_from_template(self):
         # Off unless asked for: it replaces the chart's GPU operator, so it
         # must not appear on clusters that did not request it.
@@ -1451,7 +1452,7 @@ class ClusterAPIDriverTest(base.DbTestCase):
                 "monitoring": {"enabled": False},
                 "kubernetesDashboard": {"enabled": True},
                 "nvidiaGPUOperator": {"enabled": True},
-                "mellanoxNetworkOperator": {"enabled": True},
+                "mellanoxNetworkOperator": {"enabled": False},
                 "ingress": {"enabled": False},
                 "openstack": {
                     "csiCinder": mock.ANY,

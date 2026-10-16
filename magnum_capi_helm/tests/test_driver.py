@@ -1292,17 +1292,18 @@ class ClusterAPIDriverTest(base.DbTestCase):
             {
                 "repo": "https://openkcloud.github.io/kcloud-operator",
                 "name": "kcloud-operator",
-                "version": "0.7.30",
+                "version": "0.8.1",
             },
             spec["chart"],
         )
         # The preset arrives parsed, with the site-owned values merged in.
         self.assertTrue(spec["values"]["webhook"]["enabled"])
+        # The preset pairs with the chart version: the operator image tag
+        # matches it, and no key the 0.8.x schema rejects is carried over.
+        self.assertEqual("v0.8.1", spec["values"]["image"]["tag"])
         self.assertEqual(
-            "apt",
-            spec["values"]["driverInstallPolicies"]["nvidia"]["toolkit"][
-                "method"
-            ],
+            {"enabled": True},
+            spec["values"]["driverInstallPolicies"]["nvidia"]["toolkit"],
         )
         self.assertEqual(
             {"registry": "ghcr.io/openkcloud", "vendorRegistry": ""},

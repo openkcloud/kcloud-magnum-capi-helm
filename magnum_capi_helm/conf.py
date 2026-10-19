@@ -63,7 +63,7 @@ capi_helm_opts = [
     ),
     cfg.StrOpt(
         "kcloud_operator_chart_version",
-        default="0.7.30",
+        default="0.8.1",
         help=(
             "Version of the kcloud-operator chart. Paired with the preset in "
             "kcloud_operator_values: release.yaml bumps the chart whenever the "
@@ -81,19 +81,25 @@ capi_helm_opts = [
     ),
     # release.yaml sanctions inlining for this path -- "Add-on CR 처럼 값을
     # 인라인으로 넣는 방식이면 valuesURL 의 내용을 그대로 옮긴다". This is the
-    # content of values-k8s1.34.yaml at commit 45fcbedc8300 (the 1.31-1.34
+    # content of values-k8s1.34.yaml at commit af49fdfecf2c (the 1.31-1.34
     # profile) on one line: openstack-helm renders a config value with no
     # continuation indent, so a multi-line string would produce a broken
     # magnum.conf, and a nested mapping is dropped there without warning.
+    #
+    # The chart validates values against values.schema.json, so a preset
+    # carried over from another chart version can be rejected outright: the
+    # 0.7.x toolkit.method key fails 0.8.x with "additional properties
+    # 'method' not allowed". Take the preset from the same release.yaml
+    # profile as the chart version, never one without the other.
     cfg.StrOpt(
         "kcloud_operator_values",
         default=(
             '{"api":{"enabled":false},'
             '"driverInstallPolicies":{"nvidia":{"toolkit":'
-            '{"enabled":true,"method":"apt"}}},'
+            '{"enabled":true}}},'
             '"furiosa":{"exporter":{"enabled":true},'
             '"unified":{"enabled":false}},'
-            '"image":{"tag":"v0.7.30"},'
+            '"image":{"tag":"v0.8.1"},'
             '"nvidia":{"dcgmExporter":{"enabled":true}},'
             '"rebellions":{"enabled":false},'
             '"webhook":{"enabled":true}}'

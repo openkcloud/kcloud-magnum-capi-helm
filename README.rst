@@ -43,16 +43,17 @@ overrides the cluster template label, and the template label overrides the
 default in the ``[capi_helm_cluster_labels]`` section of ``magnum.conf``.
 Magnum does not allow labels to be changed after a cluster is created.
 
-``nvidia_gpu_operator_enabled`` (default ``true``)
-  Installs the NVIDIA GPU operator addon of the chart. Set it to ``false`` on
-  clusters whose flavors have no GPU.
+``nvidia_gpu_operator_enabled`` (default ``false``)
+  Installs the NVIDIA GPU operator addon of the chart. The chart turns it on by
+  default, but kcloud-operator manages GPUs in this deployment, so the driver
+  turns it off unless the label is set.
 
 ``mellanox_network_operator_enabled`` (default ``false``)
   Installs the Mellanox network operator addon of the chart. The chart turns it
   on by default, but it has nothing to manage without Mellanox hardware, so the
   driver turns it off unless the label is set.
 
-``kcloud_operator_enabled`` (default ``false``)
+``kcloud_operator_enabled`` (default ``true``)
   Installs `kcloud-operator <https://github.com/openkcloud/kcloud-operator>`_,
   which manages NPU and GPU accelerators, as a custom addon. kcloud-operator
   deploys the NVIDIA device plugin itself, so it cannot run together with the
@@ -62,17 +63,23 @@ Magnum does not allow labels to be changed after a cluster is created.
     installed and the NVIDIA GPU operator is not, even if
     ``nvidia_gpu_operator_enabled=true`` is also set.
   * If only ``nvidia_gpu_operator_enabled=true`` is set explicitly, the NVIDIA
-    GPU operator is installed and kcloud-operator is not, even if
-    kcloud-operator is the configured default.
-  * If neither is set, the configured defaults apply. When kcloud-operator is
-    on by default, the NVIDIA GPU operator is off.
-  * Both can be set to ``false``.
+    GPU operator is installed and kcloud-operator is not.
+  * If neither is set, the defaults apply: kcloud-operator is installed and
+    the NVIDIA GPU operator is not. If the site default for kcloud-operator is
+    changed to ``false``, the NVIDIA GPU operator default applies.
+  * Both can be set to ``false``, for example on clusters without
+    accelerators.
 
-For example::
+The defaults are read again whenever the driver updates the Helm release:
+on resize, upgrade, and when nodegroups are created, updated or deleted. An
+existing cluster that set neither label switches to the new defaults on its
+next such operation.
+
+For example, to use the NVIDIA GPU operator instead of kcloud-operator::
 
   openstack coe cluster create my-cluster \
     --cluster-template my-template \
-    --labels kcloud_operator_enabled=true
+    --labels nvidia_gpu_operator_enabled=true
 
 Configuration options
 ---------------------

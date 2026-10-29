@@ -297,20 +297,22 @@ capi_helm_cluster_labels_opts = [
     ),
     cfg.BoolOpt(
         "kcloud_operator_enabled",
-        default=False,
+        default=True,
         help=(
             "Install kcloud-operator on the cluster to manage NPU and GPU "
             "accelerators. It deploys the NVIDIA device plugin itself, so "
-            "enabling it turns the chart's own NVIDIA GPU operator off."
+            "enabling it turns the chart's own NVIDIA GPU operator off. On by "
+            "default: it is the accelerator operator this deployment uses."
         ),
     ),
     cfg.BoolOpt(
         "nvidia_gpu_operator_enabled",
-        default=True,
+        default=False,
         help=(
             "Enable the NVIDIA GPU operator addon on the cluster. The chart "
-            "installs it by default, which is wasted work on clusters whose "
-            "flavors have no GPU."
+            "installs it by default, but kcloud-operator manages GPUs here, "
+            "so this defaults to off; set the label on a cluster that should "
+            "use the GPU operator instead."
         ),
     ),
     cfg.BoolOpt(

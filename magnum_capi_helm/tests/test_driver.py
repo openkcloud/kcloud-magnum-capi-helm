@@ -1210,13 +1210,13 @@ class ClusterAPIDriverTest(base.DbTestCase):
 
             self.assertTrue(result)
     def test_get_kcloud_operator_enabled_from_template(self):
-        # Off unless asked for: it replaces the chart's GPU operator, so it
-        # must not appear on clusters that did not request it.
-        self.assertFalse(
+        # On unless turned off: it is the accelerator operator this
+        # deployment uses.
+        self.assertTrue(
             self.driver._get_kcloud_operator_enabled(self.cluster_obj)
         )
 
-        for val in ["true", "True", "TRUE"]:
+        for val in ["false", "False", "FALSE"]:
 
             self.cluster_obj.cluster_template.labels[
                 "kcloud_operator_enabled"
@@ -1226,14 +1226,11 @@ class ClusterAPIDriverTest(base.DbTestCase):
                 self.cluster_obj
             )
 
-            self.assertTrue(result)
+            self.assertFalse(result)
 
     def test_resolve_accelerator_operators_label_beats_default(self):
         # kcloud-operator on by default, but this cluster asks for the chart's
         # GPU operator: the label wins and kcloud-operator stays out.
-        conf.CONF.set_override(
-            "kcloud_operator_enabled", True, group="capi_helm_cluster_labels"
-        )
         self.cluster_obj.cluster_template.labels[
             "nvidia_gpu_operator_enabled"
         ] = "true"
@@ -1246,8 +1243,13 @@ class ClusterAPIDriverTest(base.DbTestCase):
         self.assertTrue(nvidia)
 
     def test_resolve_accelerator_operators_kcloud_label_disables_gpu(self):
-        # The mirror image: the cluster asks for kcloud-operator, so the GPU
-        # operator's default of true does not apply.
+        # The mirror image: the cluster asks for kcloud-operator, so a GPU
+        # operator default of true does not apply.
+        conf.CONF.set_override(
+            "nvidia_gpu_operator_enabled",
+            True,
+            group="capi_helm_cluster_labels",
+        )
         self.cluster_obj.cluster_template.labels[
             "kcloud_operator_enabled"
         ] = "true"
@@ -1265,8 +1267,21 @@ class ClusterAPIDriverTest(base.DbTestCase):
             self.cluster_obj
         )
 
+        self.assertTrue(kcloud)
+        self.assertFalse(nvidia)
+
+    def test_resolve_accelerator_operators_both_turned_off(self):
+        # A cluster with no accelerators can turn both off.
+        for label in ("kcloud_operator_enabled",
+                      "nvidia_gpu_operator_enabled"):
+            self.cluster_obj.cluster_template.labels[label] = "false"
+
+        kcloud, nvidia = self.driver._resolve_accelerator_operators(
+            self.cluster_obj
+        )
+
         self.assertFalse(kcloud)
-        self.assertTrue(nvidia)
+        self.assertFalse(nvidia)
 
     def test_resolve_accelerator_operators_kcloud_wins_over_both_asked(self):
         # Both asked for: kcloud-operator covers GPUs as well, so it takes the
@@ -1339,11 +1354,11 @@ class ClusterAPIDriverTest(base.DbTestCase):
 
     def test_get_nvidia_gpu_operator_enabled_from_template(self):
         # Check default if label is not present
-        self.assertTrue(
+        self.assertFalse(
             self.driver._get_nvidia_gpu_operator_enabled(self.cluster_obj)
         )
 
-        for val in ["false", "False", "FALSE"]:
+        for val in ["true", "True", "TRUE"]:
 
             self.cluster_obj.cluster_template.labels[
                 "nvidia_gpu_operator_enabled"
@@ -1353,7 +1368,7 @@ class ClusterAPIDriverTest(base.DbTestCase):
                 self.cluster_obj
             )
 
-            self.assertFalse(result)
+            self.assertTrue(result)
 
     def test_get_registry_mirrors_default_removes_chart_defaults(self):
         # Nothing configured: every registry the chart mirrors must be sent as
@@ -1452,8 +1467,11 @@ class ClusterAPIDriverTest(base.DbTestCase):
             "addons": {
                 "monitoring": {"enabled": False},
                 "kubernetesDashboard": {"enabled": True},
-                "nvidiaGPUOperator": {"enabled": True},
+                "nvidiaGPUOperator": {"enabled": False},
                 "mellanoxNetworkOperator": {"enabled": False},
+                # kcloud-operator is on by default; its values are checked
+                # in test_get_kcloud_operator_addon.
+                "custom": self.driver._get_kcloud_operator_addon(),
                 "ingress": {"enabled": False},
                 "openstack": {
                     "csiCinder": mock.ANY,

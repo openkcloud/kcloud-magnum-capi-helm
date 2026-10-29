@@ -29,3 +29,119 @@ https://specs.openstack.org/openstack/magnum-specs/specs/bobcat/clusterapi-drive
 * Documentation: https://docs.openstack.org/magnum-capi-helm/latest
 * Source: https://opendev.org/openstack/magnum-capi-helm
 * Bugs: https://bugs.launchpad.net/magnum
+
+kcloud additions
+================
+
+The ``kcloud`` branch of this fork adds the following to the upstream driver.
+
+Cluster labels
+--------------
+
+These labels are read in the same way as the upstream ones. A cluster label
+overrides the cluster template label, and the template label overrides the
+default in the ``[capi_helm_cluster_labels]`` section of ``magnum.conf``.
+Magnum does not allow labels to be changed after a cluster is created.
+
+``nvidia_gpu_operator_enabled`` (default ``false``)
+  Installs the NVIDIA GPU operator addon of the chart. The chart turns it on by
+  default, but kcloud-operator manages GPUs in this deployment, so the driver
+  turns it off unless the label is set.
+
+``mellanox_network_operator_enabled`` (default ``false``)
+  Installs the Mellanox network operator addon of the chart. The chart turns it
+  on by default, but it has nothing to manage without Mellanox hardware, so the
+  driver turns it off unless the label is set.
+
+``kcloud_operator_enabled`` (default ``true``)
+  Installs `kcloud-operator <https://github.com/openkcloud/kcloud-operator>`_,
+  which manages NPU and GPU accelerators, as a custom addon. kcloud-operator
+  deploys the NVIDIA device plugin itself, so it cannot run together with the
+  NVIDIA GPU operator:
+
+  * If ``kcloud_operator_enabled=true`` is set explicitly, kcloud-operator is
+    installed and the NVIDIA GPU operator is not, even if
+    ``nvidia_gpu_operator_enabled=true`` is also set.
+  * If only ``nvidia_gpu_operator_enabled=true`` is set explicitly, the NVIDIA
+    GPU operator is installed and kcloud-operator is not.
+  * If neither is set, the defaults apply: kcloud-operator is installed and
+    the NVIDIA GPU operator is not. If the site default for kcloud-operator is
+    changed to ``false``, the NVIDIA GPU operator default applies.
+  * Both can be set to ``false``, for example on clusters without
+    accelerators.
+
+The defaults are read again whenever the driver updates the Helm release:
+on resize, upgrade, and when nodegroups are created, updated or deleted. An
+existing cluster that set neither label switches to the new defaults on its
+next such operation.
+
+For example, to use the NVIDIA GPU operator instead of kcloud-operator::
+
+  openstack coe cluster create my-cluster \
+    --cluster-template my-template \
+    --labels nvidia_gpu_operator_enabled=true
+
+Configuration options
+---------------------
+
+These options are in the ``[capi_helm]`` section of ``magnum.conf``.
+
+``kcloud_operator_chart_repo``
+  The Helm repository for the kcloud-operator chart, by default
+  ``https://openkcloud.github.io/kcloud-operator``. It must be an http(s)
+  repository, because cluster-api-addon-provider does not accept ``oci://``
+  references.
+
+``kcloud_operator_chart_version`` (default ``0.8.1``)
+  The kcloud-operator chart version.
+
+``kcloud_operator_values``
+  The Helm values for the chart, as one line of YAML or JSON. The default is
+  the Kubernetes 1.31-1.34 preset from kcloud-operator's
+  ``deploy/integration/release.yaml``. Setting this option replaces the whole
+  preset; it is not merged with the default, so copy the preset and change it.
+
+  The chart validates its values against a schema, so the chart version and
+  the preset must come from the same ``release.yaml`` profile. Change them
+  together. Guest clusters outside the 1.31-1.34 range need the other profile.
+
+  The value must be on one line. openstack-helm writes it into
+  ``magnum.conf`` without continuation indent, so a multi-line value breaks the
+  file.
+
+``kcloud_operator_namespace`` (default ``kcloud``)
+  The namespace of the kcloud-operator release on the guest cluster.
+
+``kcloud_operator_registry`` (default ``ghcr.io/openkcloud``)
+  The registry for the images kcloud builds. It is set as ``global.registry``
+  on top of ``kcloud_operator_values``.
+
+``kcloud_operator_vendor_registry`` (default empty)
+  The registry for third-party vendor images, set as ``global.vendorRegistry``.
+  When it is empty, the images are pulled from their upstream registries. For
+  an air-gapped site, set it to a mirror that keeps the
+  ``<mirror>/<org>/<image>`` layout.
+
+``registry_mirrors`` (default empty)
+  Registry mirrors for containerd on the guest cluster, as
+  ``<registry>:<mirror url>`` pairs, for example
+  ``docker.io:https://registry.example.com/v2/docker.io``. The chart defines
+  its own mirrors for ``docker.io``, ``ghcr.io``, ``nvcr.io``, ``quay.io`` and
+  ``registry.k8s.io``; the driver removes them, so a registry that is not
+  listed here is pulled from upstream directly. Leave the option empty to use
+  no mirrors.
+
+Container image
+---------------
+
+Each push to ``kcloud`` builds ``ghcr.io/openkcloud/kcloud-magnum``. The image
+is the Genestack magnum image (``2025.1-latest``) with this driver installed
+over it; magnum itself is not rebuilt. It is tagged ``2025.1`` and
+``2025.1-<driver version>``. The base tag changes weekly, so pin the image by
+digest in production.
+
+Contributing
+------------
+
+Changes go to a topic branch and a pull request against ``kcloud``. A
+maintainer merges it by commenting ``/approve``.

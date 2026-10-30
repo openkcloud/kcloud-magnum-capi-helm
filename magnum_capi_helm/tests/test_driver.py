@@ -1177,9 +1177,9 @@ class ClusterAPIDriverTest(base.DbTestCase):
 
     def test_get_kube_dash_enabled_from_template(self):
         # Check default if label is not present
-        self.assertTrue(self.driver._get_kube_dash_enabled(self.cluster_obj))
+        self.assertFalse(self.driver._get_kube_dash_enabled(self.cluster_obj))
 
-        for val in ["false", "False", "FALSE"]:
+        for val in ["true", "True", "TRUE"]:
 
             self.cluster_obj.cluster_template.labels[
                 "kube_dashboard_enabled"
@@ -1187,7 +1187,7 @@ class ClusterAPIDriverTest(base.DbTestCase):
 
             result = self.driver._get_kube_dash_enabled(self.cluster_obj)
 
-            self.assertFalse(result)
+            self.assertTrue(result)
 
     def test_get_mellanox_network_operator_enabled_from_template(self):
         # Off unless a cluster asks for it: nodes without Mellanox cards have
@@ -1466,7 +1466,7 @@ class ClusterAPIDriverTest(base.DbTestCase):
             },
             "addons": {
                 "monitoring": {"enabled": False},
-                "kubernetesDashboard": {"enabled": True},
+                "kubernetesDashboard": {"enabled": False},
                 "nvidiaGPUOperator": {"enabled": False},
                 "mellanoxNetworkOperator": {"enabled": False},
                 # kcloud-operator is on by default; its values are checked

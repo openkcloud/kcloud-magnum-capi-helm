@@ -317,8 +317,12 @@ capi_helm_cluster_labels_opts = [
     ),
     cfg.BoolOpt(
         "kube_dashboard_enabled",
-        default=True,
-        help="Enable the Kubernetes Dashboard addon.",
+        default=False,
+        help=(
+            "Enable the Kubernetes Dashboard addon. Off by default: the "
+            "dashboard is a further endpoint on the cluster that most "
+            "clusters do not use; set the label on clusters that want it."
+        ),
     ),
     cfg.BoolOpt(
         "auto_healing_enabled",

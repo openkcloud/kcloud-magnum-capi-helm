@@ -48,6 +48,12 @@ Magnum does not allow labels to be changed after a cluster is created.
   default, but kcloud-operator manages GPUs in this deployment, so the driver
   turns it off unless the label is set.
 
+``kube_dashboard_enabled`` (default ``false``)
+  Installs the Kubernetes Dashboard addon. Upstream turns it on by default;
+  this fork turns it off unless the label is set. An existing cluster without
+  the label loses the dashboard the next time the driver updates its Helm
+  release.
+
 ``mellanox_network_operator_enabled`` (default ``false``)
   Installs the Mellanox network operator addon of the chart. The chart turns it
   on by default, but it has nothing to manage without Mellanox hardware, so the

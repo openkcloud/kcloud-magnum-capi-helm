@@ -756,6 +756,13 @@ class Driver(driver.Driver):
             "mellanox_network_operator_enabled",
             CONF.capi_helm_cluster_labels.mellanox_network_operator_enabled,
         )
+
+    def _get_node_feature_discovery_enabled(self, cluster):
+        return self._get_label_bool(
+            cluster,
+            "node_feature_discovery_enabled",
+            CONF.capi_helm_cluster_labels.node_feature_discovery_enabled,
+        )
     def _explicit_label_bool(self, cluster, label):
         """Read a boolean label, or None when it is not set at all.
 
@@ -1378,6 +1385,13 @@ class Driver(driver.Driver):
                 "nvidiaGPUOperator": {"enabled": nvidia_gpu_operator},
                 "mellanoxNetworkOperator": {
                     "enabled": self._get_mellanox_network_operator_enabled(
+                        cluster
+                    )
+                },
+                # The chart also installs it for the GPU and network
+                # operators above, whatever this says.
+                "nodeFeatureDiscovery": {
+                    "enabled": self._get_node_feature_discovery_enabled(
                         cluster
                     )
                 },

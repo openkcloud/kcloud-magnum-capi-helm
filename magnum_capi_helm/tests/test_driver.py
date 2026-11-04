@@ -1209,6 +1209,25 @@ class ClusterAPIDriverTest(base.DbTestCase):
             )
 
             self.assertTrue(result)
+
+    def test_get_node_feature_discovery_enabled_from_template(self):
+        # Off unless a cluster asks for it: kcloud-operator does not use the
+        # labels it publishes.
+        self.assertFalse(
+            self.driver._get_node_feature_discovery_enabled(self.cluster_obj)
+        )
+
+        for val in ["true", "True", "TRUE"]:
+
+            self.cluster_obj.cluster_template.labels[
+                "node_feature_discovery_enabled"
+            ] = val
+
+            result = self.driver._get_node_feature_discovery_enabled(
+                self.cluster_obj
+            )
+
+            self.assertTrue(result)
     def test_get_kcloud_operator_enabled_from_template(self):
         # On unless turned off: it is the accelerator operator this
         # deployment uses.
@@ -1469,6 +1488,7 @@ class ClusterAPIDriverTest(base.DbTestCase):
                 "kubernetesDashboard": {"enabled": False},
                 "nvidiaGPUOperator": {"enabled": False},
                 "mellanoxNetworkOperator": {"enabled": False},
+                "nodeFeatureDiscovery": {"enabled": False},
                 # kcloud-operator is on by default; its values are checked
                 # in test_get_kcloud_operator_addon.
                 "custom": self.driver._get_kcloud_operator_addon(),

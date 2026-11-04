@@ -296,6 +296,17 @@ capi_helm_cluster_labels_opts = [
         ),
     ),
     cfg.BoolOpt(
+        "node_feature_discovery_enabled",
+        default=False,
+        help=(
+            "Enable the node feature discovery addon on the cluster. The "
+            "chart installs it by default, but kcloud-operator labels nodes "
+            "itself and does not read its labels, so this defaults to off. "
+            "The chart still installs it whenever the NVIDIA GPU operator or "
+            "the Mellanox network operator is enabled, since both need it."
+        ),
+    ),
+    cfg.BoolOpt(
         "kcloud_operator_enabled",
         default=True,
         help=(

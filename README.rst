@@ -59,6 +59,15 @@ Magnum does not allow labels to be changed after a cluster is created.
   on by default, but it has nothing to manage without Mellanox hardware, so the
   driver turns it off unless the label is set.
 
+``node_feature_discovery_enabled`` (default ``false``)
+  Installs the node feature discovery addon of the chart. The chart turns it on
+  by default, but kcloud-operator labels nodes itself and does not use the
+  labels it publishes, so the driver turns it off unless the label is set. The
+  chart still installs it when the NVIDIA GPU operator or the Mellanox network
+  operator is enabled, because both depend on it. An existing cluster without
+  the label loses it the next time the driver updates its Helm release, unless
+  one of those operators is enabled.
+
 ``kcloud_operator_enabled`` (default ``true``)
   Installs `kcloud-operator <https://github.com/openkcloud/kcloud-operator>`_,
   which manages NPU and GPU accelerators, as a custom addon. kcloud-operator

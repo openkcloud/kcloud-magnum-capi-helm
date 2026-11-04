@@ -615,6 +615,8 @@ class Driver(driver.Driver):
         else:
             # openstacksdk
             image = glance.find_image(image_identifier)
+            if image is None:
+                raise exception.ImageNotFound(image_id=image_identifier)
         return (
             image.id,
             self._get_kube_version(image),
@@ -1257,6 +1259,90 @@ class Driver(driver.Driver):
             additionalStorageClasses=additional_storage_classes,
         )
 
+    def _nodegroup_has_own_image(self, cluster_template, nodegroup):
+        # Magnum copies the template image into every node group created
+        # without --image, so only a non-default node group whose image
+        # differs from the template image has an image of its own. Default
+        # node groups always follow the template.
+        return bool(
+            not nodegroup.is_default
+            and nodegroup.image_id
+            and nodegroup.image_id != cluster_template.image_id
+        )
+
+    def _check_nodegroup_image(self, context, nodegroup, template_image):
+        """Check a node group image against the template image.
+
+        template_image is the (id, kube_version, os_distro) tuple of the
+        cluster template image. Returns the node group image ID, or None
+        when the node group image is the template image.
+        """
+        try:
+            image_id, kube_version, os_distro = self._get_image_details(
+                context, nodegroup.image_id
+            )
+        except exception.ResourceNotFound:
+            raise exception.NodeGroupInvalidInput(
+                message=(
+                    f"Node group {nodegroup.name} image "
+                    f"{nodegroup.image_id} was not found."
+                )
+            )
+        template_id, template_kube_version, template_os_distro = template_image
+        if image_id == template_id:
+            return None
+
+        # kubernetesVersion and osDistro are cluster-wide chart values, so
+        # a node group image must match the cluster template image on both.
+        if kube_version != template_kube_version:
+            raise exception.NodeGroupInvalidInput(
+                message=(
+                    f"Node group {nodegroup.name} image {image_id} has "
+                    f"kube_version {kube_version}, but the cluster template "
+                    f"image has {template_kube_version}. Use a node group "
+                    "image with the same kube_version."
+                )
+            )
+        if os_distro != template_os_distro:
+            raise exception.NodeGroupInvalidInput(
+                message=(
+                    f"Node group {nodegroup.name} image {image_id} has "
+                    f"os_distro {os_distro}, but the cluster template "
+                    f"image has {template_os_distro}. Use a node group "
+                    "image with the same os_distro."
+                )
+            )
+        return image_id
+
+    def _validate_nodegroup_image(self, context, cluster, nodegroup):
+        """Check a new node group image and store it as an image ID.
+
+        Storing the ID lets later Helm updates pass the image without a
+        Glance lookup, and a node group that named the template image
+        is stored with the template image so it follows the template.
+        """
+        template = cluster.cluster_template
+        if not self._nodegroup_has_own_image(template, nodegroup):
+            return
+        image_id = self._check_nodegroup_image(
+            context,
+            nodegroup,
+            self._get_image_details(context, template.image_id),
+        )
+        nodegroup.image_id = image_id or template.image_id
+
+    def _get_nodegroup_image_values(self, cluster, nodegroup):
+        if not self._nodegroup_has_own_image(
+            cluster.cluster_template, nodegroup
+        ):
+            return {}
+        # The image was checked when the node group was created or the
+        # cluster upgraded. Node groups created before this driver
+        # supported node group images may hold an image name.
+        if uuidutils.is_uuid_like(nodegroup.image_id):
+            return {"machineImageId": nodegroup.image_id}
+        return {"machineImage": nodegroup.image_id}
+
     def _process_node_groups(self, cluster, nodegroups):
         nodegroup_set = []
         for ng in nodegroups:
@@ -1265,6 +1351,7 @@ class Driver(driver.Driver):
                     name=driver_utils.sanitized_name(ng.name),
                     machineFlavor=ng.flavor_id,
                     machineCount=ng.node_count,
+                    **self._get_nodegroup_image_values(cluster, ng),
                 )
                 if self._get_autoscale_enabled(cluster):
                     values = self._get_autoscale_values(cluster, ng)
@@ -1630,11 +1717,34 @@ class Driver(driver.Driver):
         # TODO(mkjpryor) check that the upgrade is viable
         # e.g. not a downgrade, not an upgrade by more than one minor version
 
+        # Check node groups with their own image against the new template
+        # before anything is saved, so a rejected upgrade changes nothing.
+        old_template = cluster.cluster_template
+        own_image_ids = {}
+        own_image_ngs = [
+            ng
+            for ng in cluster.nodegroups
+            if self._nodegroup_has_own_image(old_template, ng)
+        ]
+        if own_image_ngs:
+            new_image = self._get_image_details(
+                context, cluster_template.image_id
+            )
+            for ng in own_image_ngs:
+                own_image_ids[ng.uuid] = self._check_nodegroup_image(
+                    context, ng, new_image
+                )
+
         # Updating the template will likely apply for all nodegroups
         # So mark them all as having an update in progress
         for nodegroup in cluster.nodegroups:
             nodegroup.status = fields.ClusterStatus.UPDATE_IN_PROGRESS
             self._validate_allowed_flavor(context, nodegroup.flavor_id)
+            # Magnum leaves the old template image in node groups that
+            # follow the template; move them to the new one, or they would
+            # look like node groups with their own image.
+            if not own_image_ids.get(nodegroup.uuid):
+                nodegroup.image_id = cluster_template.image_id
             nodegroup.save()
 
         # Move the cluster to the new template
@@ -1648,6 +1758,7 @@ class Driver(driver.Driver):
     def create_nodegroup(self, context, cluster, nodegroup):
         nodegroup.status = fields.ClusterStatus.CREATE_IN_PROGRESS
         self._validate_allowed_flavor(context, nodegroup.flavor_id)
+        self._validate_nodegroup_image(context, cluster, nodegroup)
         if self._get_autoscale_enabled(cluster):
             self._validate_allowed_node_counts(cluster, nodegroup)
         nodegroup.save()

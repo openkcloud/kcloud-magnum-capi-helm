@@ -29,6 +29,9 @@ from magnum_capi_helm import kubernetes
 
 CONF = conf.CONF
 
+# A node group image of its own, as stored by _validate_nodegroup_image.
+NG_IMAGE_ID = "5b9c6d2e-3f4a-4b8c-9d1e-2f3a4b5c6d7e"
+
 
 class ClusterAPIDriverTest(base.DbTestCase):
     def setUp(self):
@@ -2580,8 +2583,7 @@ class ClusterAPIDriverTest(base.DbTestCase):
         mock_validate_allowed_flavor,
     ):
         node_group = mock.MagicMock()
-        mock_template = mock.MagicMock()
-        mock_template.uuid = "foo"
+        mock_template = self._new_template("new-template-image")
 
         self.driver.upgrade_cluster(
             self.context,
@@ -2594,13 +2596,90 @@ class ClusterAPIDriverTest(base.DbTestCase):
         # TODO(johngarbutt) improve the testing
         mock_update.assert_called_once_with(self.context, self.cluster_obj)
         self.assertEqual("UPDATE_IN_PROGRESS", self.cluster_obj.status)
+        # Node groups that follow the template move to the new image.
+        for ng in self.cluster_obj.nodegroups:
+            self.assertEqual("new-template-image", ng.image_id)
 
+    def _worker_nodegroup(self):
+        return next(
+            ng for ng in self.cluster_obj.nodegroups if ng.role == "worker"
+        )
+
+    def _own_image_worker(self, image_id=NG_IMAGE_ID):
+        # cluster.nodegroups reads the DB each time, so save the change.
+        ng = self._worker_nodegroup()
+        ng.is_default = False
+        ng.image_id = image_id
+        ng.save()
+        return ng
+
+    def _new_template(self, image_id):
+        return obj_utils.create_test_cluster_template(
+            self.context, uuid=str(uuid4()), image_id=image_id
+        )
+
+    @mock.patch.object(driver.Driver, "_get_image_details")
+    @mock.patch.object(driver.Driver, "_validate_allowed_flavor")
+    @mock.patch.object(driver.Driver, "_update_helm_release")
+    def test_upgrade_cluster_own_image(
+        self, mock_update, mock_validate_allowed_flavor, mock_image
+    ):
+        mock_image.side_effect = lambda ctx, ident: {
+            "new-template-image": ("imageid1", "1.28.0", "ubuntu"),
+            NG_IMAGE_ID: (NG_IMAGE_ID, "1.28.0", "ubuntu"),
+        }[ident]
+        ng = self._own_image_worker()
+        mock_template = self._new_template("new-template-image")
+
+        self.driver.upgrade_cluster(
+            self.context, self.cluster_obj, mock_template, 1, None
+        )
+
+        # The node group keeps its own image, which matches the new
+        # template's kube_version.
+        ng.refresh()
+        self.assertEqual(NG_IMAGE_ID, ng.image_id)
+        mock_update.assert_called_once_with(self.context, self.cluster_obj)
+
+    @mock.patch.object(driver.Driver, "_get_image_details")
+    @mock.patch.object(driver.Driver, "_validate_allowed_flavor")
+    @mock.patch.object(driver.Driver, "_update_helm_release")
+    def test_upgrade_cluster_own_image_kube_version_mismatch(
+        self, mock_update, mock_validate_allowed_flavor, mock_image
+    ):
+        mock_image.side_effect = lambda ctx, ident: {
+            "new-template-image": ("imageid1", "1.28.0", "ubuntu"),
+            NG_IMAGE_ID: (NG_IMAGE_ID, "1.27.4", "ubuntu"),
+        }[ident]
+        self._own_image_worker()
+        template_id = self.cluster_obj.cluster_template_id
+        mock_template = self._new_template("new-template-image")
+
+        self.assertRaises(
+            exception.NodeGroupInvalidInput,
+            self.driver.upgrade_cluster,
+            self.context,
+            self.cluster_obj,
+            mock_template,
+            1,
+            None,
+        )
+
+        # Rejected before the cluster moved to the new template.
+        self.cluster_obj.refresh()
+        self.assertEqual(template_id, self.cluster_obj.cluster_template_id)
+        for ng in self.cluster_obj.nodegroups:
+            self.assertNotEqual("UPDATE_IN_PROGRESS", ng.status)
+        mock_update.assert_not_called()
+
+    @mock.patch.object(driver.Driver, "_validate_nodegroup_image")
     @mock.patch.object(driver.Driver, "_validate_allowed_flavor")
     @mock.patch.object(driver.Driver, "_update_helm_release")
     def test_create_nodegroup(
         self,
         mock_update,
         mock_validate_allowed_flavor,
+        mock_validate_image,
     ):
         node_group = mock.MagicMock()
 
@@ -2608,9 +2687,233 @@ class ClusterAPIDriverTest(base.DbTestCase):
             self.context, self.cluster_obj, node_group
         )
 
+        mock_validate_image.assert_called_once_with(
+            self.context, self.cluster_obj, node_group
+        )
         mock_update.assert_called_once_with(self.context, self.cluster_obj)
         node_group.save.assert_called_once_with()
         self.assertEqual("CREATE_IN_PROGRESS", node_group.status)
+
+    @mock.patch.object(driver.Driver, "_get_image_details")
+    @mock.patch.object(driver.Driver, "_validate_allowed_flavor")
+    @mock.patch.object(driver.Driver, "_update_helm_release")
+    def test_create_nodegroup_image_kube_version_mismatch(
+        self,
+        mock_update,
+        mock_validate_allowed_flavor,
+        mock_image,
+    ):
+        mock_image.side_effect = lambda ctx, ident: {
+            self.cluster_obj.cluster_template.image_id: (
+                "imageid1",
+                "1.27.4",
+                "ubuntu",
+            ),
+            "ng-image": ("imageid2", "1.28.0", "ubuntu"),
+        }[ident]
+        node_group = mock.MagicMock()
+        node_group.is_default = False
+        node_group.image_id = "ng-image"
+
+        self.assertRaises(
+            exception.NodeGroupInvalidInput,
+            self.driver.create_nodegroup,
+            self.context,
+            self.cluster_obj,
+            node_group,
+        )
+
+        # Rejected before the node group is saved or the release updated.
+        node_group.save.assert_not_called()
+        mock_update.assert_not_called()
+
+    @mock.patch.object(driver.Driver, "_get_image_details")
+    def test_validate_nodegroup_image_template_image(self, mock_image):
+        ng = self._own_image_worker(self.cluster_obj.cluster_template.image_id)
+
+        self.driver._validate_nodegroup_image(
+            self.context, self.cluster_obj, ng
+        )
+
+        # No glance lookup for node groups that kept the template image.
+        mock_image.assert_not_called()
+
+    @mock.patch.object(driver.Driver, "_get_image_details")
+    def test_validate_nodegroup_image_default_nodegroup(self, mock_image):
+        # Default node groups follow the template whatever image they hold.
+        ng = self._worker_nodegroup()
+        ng.image_id = "old-template-image"
+
+        self.driver._validate_nodegroup_image(
+            self.context, self.cluster_obj, ng
+        )
+
+        mock_image.assert_not_called()
+        self.assertEqual(
+            {}, self.driver._get_nodegroup_image_values(self.cluster_obj, ng)
+        )
+
+    @mock.patch.object(driver.Driver, "_get_image_details")
+    def test_validate_nodegroup_image_resolves_to_template(self, mock_image):
+        # The node group names the template image by name instead of ID.
+        mock_image.return_value = ("imageid1", "1.27.4", "ubuntu")
+        ng = self._own_image_worker("template-image-by-name")
+
+        self.driver._validate_nodegroup_image(
+            self.context, self.cluster_obj, ng
+        )
+
+        # Stored as the template image, so it follows the template.
+        self.assertEqual(
+            self.cluster_obj.cluster_template.image_id, ng.image_id
+        )
+
+    @mock.patch.object(driver.Driver, "_get_image_details")
+    def test_validate_nodegroup_image_own_image(self, mock_image):
+        mock_image.side_effect = lambda ctx, ident: {
+            self.cluster_obj.cluster_template.image_id: (
+                "imageid1",
+                "1.27.4",
+                "ubuntu",
+            ),
+            "npu-image": (NG_IMAGE_ID, "1.27.4", "ubuntu"),
+        }[ident]
+        ng = self._own_image_worker("npu-image")
+
+        self.driver._validate_nodegroup_image(
+            self.context, self.cluster_obj, ng
+        )
+
+        # Stored as the image ID, so Helm updates need no glance lookup.
+        self.assertEqual(NG_IMAGE_ID, ng.image_id)
+
+    @mock.patch.object(driver.Driver, "_get_image_details")
+    def test_validate_nodegroup_image_not_found(self, mock_image):
+        template_image = self.cluster_obj.cluster_template.image_id
+
+        def image_details(ctx, ident):
+            if ident == template_image:
+                return ("imageid1", "1.27.4", "ubuntu")
+            raise exception.ImageNotFound(image_id=ident)
+
+        mock_image.side_effect = image_details
+        ng = self._own_image_worker("missing-image")
+
+        self.assertRaises(
+            exception.NodeGroupInvalidInput,
+            self.driver._validate_nodegroup_image,
+            self.context,
+            self.cluster_obj,
+            ng,
+        )
+
+    @mock.patch.object(driver.Driver, "_get_image_details")
+    def test_check_nodegroup_image_kube_version_mismatch(self, mock_image):
+        mock_image.return_value = ("imageid2", "1.28.0", "ubuntu")
+        ng = self._own_image_worker("npu-image")
+
+        self.assertRaises(
+            exception.NodeGroupInvalidInput,
+            self.driver._check_nodegroup_image,
+            self.context,
+            ng,
+            ("imageid1", "1.27.4", "ubuntu"),
+        )
+
+    @mock.patch.object(driver.Driver, "_get_image_details")
+    def test_check_nodegroup_image_os_distro_mismatch(self, mock_image):
+        mock_image.return_value = ("imageid2", "1.27.4", "flatcar")
+        ng = self._own_image_worker("npu-image")
+
+        self.assertRaises(
+            exception.NodeGroupInvalidInput,
+            self.driver._check_nodegroup_image,
+            self.context,
+            ng,
+            ("imageid1", "1.27.4", "ubuntu"),
+        )
+
+    @mock.patch.object(driver.Driver, "_get_image_details")
+    def test_process_node_groups_own_image(self, mock_image):
+        self._own_image_worker()
+
+        result = self.driver._process_node_groups(
+            self.cluster_obj, self.cluster_obj.nodegroups
+        )
+
+        self.assertEqual(
+            [
+                {
+                    "name": "test-worker",
+                    "machineFlavor": "flavor_medium",
+                    "machineCount": 3,
+                    "machineImageId": NG_IMAGE_ID,
+                }
+            ],
+            result,
+        )
+        # Checked when the node group was created, not on every update.
+        mock_image.assert_not_called()
+
+    def test_process_node_groups_own_image_name(self):
+        # Node groups created before the driver supported node group
+        # images may hold an image name.
+        self._own_image_worker("npu-image")
+
+        result = self.driver._process_node_groups(
+            self.cluster_obj, self.cluster_obj.nodegroups
+        )
+
+        self.assertEqual("npu-image", result[0]["machineImage"])
+        self.assertNotIn("machineImageId", result[0])
+
+    @mock.patch.object(driver.Driver, "_get_allowed_cidrs")
+    @mock.patch.object(
+        driver.Driver, "_storageclass_definitions", return_value=mock.ANY
+    )
+    @mock.patch.object(
+        driver.Driver,
+        "_get_image_details",
+        return_value=("imageid1", "1.27.4", "ubuntu"),
+    )
+    @mock.patch.object(helm.Client, "install_or_upgrade")
+    def test_delete_nodegroup_keeps_other_own_image(
+        self,
+        mock_helm_update,
+        mock_image_details,
+        mock_storageclasses,
+        mock_get_cidrs,
+    ):
+        npu = obj_utils.create_test_nodegroup(
+            self.context,
+            cluster_id=self.cluster_obj.uuid,
+            uuid=str(uuid4()),
+            name="npu-worker",
+            role="worker",
+            is_default=False,
+            image_id=NG_IMAGE_ID,
+            flavor_id="flavor_npu",
+        )
+        self.cluster_obj.refresh()
+        ng_to_delete = self._worker_nodegroup()
+
+        self.driver.delete_nodegroup(
+            self.context, self.cluster_obj, ng_to_delete
+        )
+
+        helm_values = mock_helm_update.call_args[0][2]
+        self.assertEqual(
+            [
+                {
+                    "name": "npu-worker",
+                    "machineFlavor": "flavor_npu",
+                    "machineCount": npu.node_count,
+                    "machineImageId": NG_IMAGE_ID,
+                }
+            ],
+            helm_values["nodeGroups"],
+        )
+        self.assertEqual("imageid1", helm_values["machineImageId"])
 
     @mock.patch.object(driver.Driver, "_validate_allowed_flavor")
     @mock.patch.object(driver.Driver, "_update_helm_release")

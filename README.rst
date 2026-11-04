@@ -96,6 +96,31 @@ For example, to use the NVIDIA GPU operator instead of kcloud-operator::
     --cluster-template my-template \
     --labels nvidia_gpu_operator_enabled=true
 
+Node group images
+-----------------
+
+A worker node group created with ``--image`` boots from that image instead
+of the cluster template image, so accelerator nodes can use an image that
+carries their drivers while other nodes keep the template image::
+
+  openstack coe nodegroup create my-cluster npu-workers \
+    --flavor m1.large.npu --image ubuntu-jammy-kube-v1.36.4-npu
+
+The image must have the same ``kube_version`` and ``os_distro`` properties as
+the cluster template image, because the Kubernetes version and OS are set for
+the whole cluster; the driver rejects the node group otherwise. It needs
+capi-helm-charts 0.25.0 or later, which read ``nodeGroups[].machineImageId``.
+
+The default node groups, and node groups created without ``--image``, use the
+template image, as before. Magnum copies the template image into those node
+groups; on a cluster upgrade the driver moves them to the new template image.
+
+A node group with its own image keeps it on upgrade. The driver checks it
+against the new template image first, and rejects the upgrade if the
+``kube_version`` or ``os_distro`` no longer matches: the cluster stays on its
+template and shows ``UPDATE_FAILED`` with the reason. Delete that node group,
+upgrade, and create it again with an image that matches.
+
 Configuration options
 ---------------------
 
